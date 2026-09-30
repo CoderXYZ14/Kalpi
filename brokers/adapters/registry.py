@@ -1,11 +1,13 @@
 from brokers.adapters.groww import GrowwAdapter
 from brokers.adapters.mock import MockAdapter
+from brokers.adapters.upstox import UpstoxAdapter
 from brokers.adapters.zerodha import ZerodhaAdapter
 
 ADAPTERS = {
     "mock": MockAdapter,
     "zerodha": ZerodhaAdapter,
     "groww": GrowwAdapter,
+    "upstox": UpstoxAdapter,
 }
 
 
