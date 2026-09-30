@@ -1,7 +1,6 @@
 from rest_framework.response import Response
 
 
-# One fixed response shape for every endpoint, so clients never guess.
 def success_response(data, status=200):
     return Response({"success": True, "data": data}, status=status)
 

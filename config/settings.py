@@ -54,7 +54,6 @@ TEMPLATES = [
 
 WSGI_APPLICATION = "config.wsgi.application"
 
-# Postgres when running in Docker (POSTGRES_DB is set), SQLite for quick local runs.
 if os.environ.get("POSTGRES_DB"):
     DATABASES = {
         "default": {
@@ -91,7 +90,6 @@ REST_FRAMEWORK = {
     "DEFAULT_AUTHENTICATION_CLASSES": ["rest_framework.authentication.TokenAuthentication"],
     "DEFAULT_PERMISSION_CLASSES": ["rest_framework.permissions.IsAuthenticated"],
     "DEFAULT_RENDERER_CLASSES": ["rest_framework.renderers.JSONRenderer"],
-    # Every error goes through one handler so the response shape never changes.
     "EXCEPTION_HANDLER": "common.exceptions.exception_handler",
 }
 
@@ -107,18 +105,14 @@ LOGGING = {
     "root": {"handlers": ["console"], "level": "INFO"},
 }
 
-# --- Execution engine ---
-# Real markets are only open 09:15-15:30 IST on weekdays; bypass lets the mock demo run anytime.
 BYPASS_MARKET_HOURS = env_bool("BYPASS_MARKET_HOURS", False)
 ENGINE_POLL_INTERVAL = float(os.environ.get("ENGINE_POLL_INTERVAL", 2))
 ENGINE_POLL_TIMEOUT = float(os.environ.get("ENGINE_POLL_TIMEOUT", 30))
 ENGINE_RETRY_DELAYS = [1, 2, 4]
-# SEBI caps API orders at 10/sec per user; 8/sec leaves headroom.
 ENGINE_MIN_ORDER_GAP = 1 / 8
 
 WEBHOOK_URL = os.environ.get("WEBHOOK_URL", "")
 
-# --- Broker API credentials (only needed for real brokers) ---
 KITE_API_KEY = os.environ.get("KITE_API_KEY", "")
 KITE_API_SECRET = os.environ.get("KITE_API_SECRET", "")
 GROWW_API_KEY = os.environ.get("GROWW_API_KEY", "")
