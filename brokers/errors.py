@@ -17,6 +17,28 @@ class ErrorCode(models.TextChoices):
     UNKNOWN = "UNKNOWN"
 
 
+MESSAGE_PATTERNS = [
+    (("authorisation at depository", "needs authorisation", "tpin", "edis", "ddpi"), ErrorCode.SELL_NOT_AUTHORIZED),
+    (("session", "token", "login"), ErrorCode.AUTH_EXPIRED),
+    (("insufficient fund", "margin", "insufficient balance"), ErrorCode.INSUFFICIENT_FUNDS),
+    (("holding", "insufficient quantity"), ErrorCode.NOT_ENOUGH_SHARES),
+    (("circuit", "price range", "lpp", "price band"), ErrorCode.PRICE_OUT_OF_RANGE),
+    (("market is closed", "markets are closed", "market closed", "outside market hours"), ErrorCode.MARKET_CLOSED),
+    (("quantity", "lot size"), ErrorCode.INVALID_QUANTITY),
+    (("instrument", "symbol", "scrip"), ErrorCode.INVALID_SYMBOL),
+    (("not allowed", "blocked", "banned", "restricted", "suspended"), ErrorCode.NOT_ALLOWED),
+    (("too many requests", "rate limit"), ErrorCode.RATE_LIMITED),
+]
+
+
+def classify_message(message):
+    text = (message or "").lower()
+    for keywords, code in MESSAGE_PATTERNS:
+        if any(keyword in text for keyword in keywords):
+            return code
+    return ErrorCode.UNKNOWN
+
+
 class BrokerError(Exception):
     def __init__(self, code, message=""):
         super().__init__(f"{code}: {message}")

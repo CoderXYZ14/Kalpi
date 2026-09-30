@@ -1,6 +1,26 @@
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timedelta
+from zoneinfo import ZoneInfo
+
+import requests
+from django.utils import timezone
+
+from brokers.errors import BrokerError, ErrorCode
+
+IST = ZoneInfo("Asia/Kolkata")
+
+
+def next_ist(hour, minute=0):
+    now = timezone.now().astimezone(IST)
+    expiry = now.replace(hour=hour, minute=minute, second=0, microsecond=0)
+    return expiry if expiry > now else expiry + timedelta(days=1)
+
+
+def network_error(error, broker, placing=False):
+    if placing and not isinstance(error, requests.ConnectTimeout):
+        return BrokerError(ErrorCode.TIMEOUT, f"{broker} did not respond: {error}")
+    return BrokerError(ErrorCode.BROKER_UNAVAILABLE, f"{broker} unreachable: {error}")
 
 
 @dataclass

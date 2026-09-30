@@ -1,7 +1,9 @@
 from brokers.adapters.mock import MockAdapter
+from brokers.adapters.zerodha import ZerodhaAdapter
 
 ADAPTERS = {
     "mock": MockAdapter,
+    "zerodha": ZerodhaAdapter,
 }
 
 
