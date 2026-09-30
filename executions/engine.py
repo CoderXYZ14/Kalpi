@@ -2,11 +2,14 @@ import logging
 import threading
 import time
 from datetime import time as clock_time
+from functools import cache
 from zoneinfo import ZoneInfo
 
 from django.conf import settings
 from django.db import connection
 from django.utils import timezone
+from pyrate_limiter import Duration, Limiter, Rate
+from tenacity import Retrying, retry_if_exception, stop_after_attempt, wait_exponential
 
 from brokers.adapters.base import OrderStatus
 from brokers.adapters.registry import get_adapter
@@ -49,12 +52,20 @@ def is_market_open(now=None):
     return now.weekday() < 5 and MARKET_OPEN <= now.time() <= MARKET_CLOSE
 
 
+def is_transient(error):
+    return isinstance(error, BrokerError) and error.code in TRANSIENT_ERRORS
+
+
+@cache
+def order_limiter(broker):
+    return Limiter(Rate(settings.ENGINE_ORDERS_PER_SECOND, Duration.SECOND))
+
+
 class ExecutionRunner:
     def __init__(self, execution):
         self.execution = execution
         self.account = execution.broker_account
         self.adapter = get_adapter(self.account.broker, self.account.access_token, self.account.user_id)
-        self.last_order_at = 0.0
 
     def log(self, message, *args, level=logging.INFO):
         logger.log(level, f"[exec {str(self.execution.id)[:8]}] {message}", *args)
@@ -94,26 +105,26 @@ class ExecutionRunner:
         self.track(placed)
 
     def call_with_retry(self, fn, *args):
-        delays = settings.ENGINE_RETRY_DELAYS
-        for attempt in range(len(delays) + 1):
-            try:
-                return fn(*args)
-            except BrokerError as error:
-                if error.code == ErrorCode.AUTH_EXPIRED:
-                    raise StopExecution(error.code, error.message)
-                if error.code not in TRANSIENT_ERRORS or attempt == len(delays):
-                    raise
-                self.log("%s, retrying in %ss", error.code, delays[attempt], level=logging.WARNING)
-                time.sleep(delays[attempt])
+        retrying = Retrying(
+            retry=retry_if_exception(is_transient),
+            stop=stop_after_attempt(settings.ENGINE_RETRY_ATTEMPTS),
+            wait=wait_exponential(multiplier=settings.ENGINE_RETRY_WAIT),
+            before_sleep=self.log_retry,
+            reraise=True,
+        )
+        try:
+            return retrying(fn, *args)
+        except BrokerError as error:
+            if error.code == ErrorCode.AUTH_EXPIRED:
+                raise StopExecution(error.code, error.message)
+            raise
 
-    def throttle(self):
-        wait = settings.ENGINE_MIN_ORDER_GAP - (time.monotonic() - self.last_order_at)
-        if wait > 0:
-            time.sleep(wait)
-        self.last_order_at = time.monotonic()
+    def log_retry(self, retry_state):
+        error = retry_state.outcome.exception()
+        self.log("%s, retry %d in %.1fs", error.code, retry_state.attempt_number, retry_state.next_action.sleep, level=logging.WARNING)
 
     def send_order(self, order):
-        self.throttle()
+        order_limiter(self.account.broker).try_acquire(self.account.broker)
         return self.adapter.place_order(order.symbol, order.side, order.quantity, order.tag)
 
     def place(self, order):

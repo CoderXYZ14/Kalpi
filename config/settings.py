@@ -1,16 +1,16 @@
-import os
 from pathlib import Path
+
+import environ
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 
+env = environ.Env()
+if (BASE_DIR / ".env").exists():
+    environ.Env.read_env(BASE_DIR / ".env")
 
-def env_bool(name, default=False):
-    return os.environ.get(name, str(default)).lower() in ("1", "true", "yes")
-
-
-SECRET_KEY = os.environ.get("SECRET_KEY", "dev-only-insecure-key")
-DEBUG = env_bool("DEBUG", True)
-ALLOWED_HOSTS = os.environ.get("ALLOWED_HOSTS", "*").split(",")
+SECRET_KEY = env("SECRET_KEY", default="dev-only-insecure-key")
+DEBUG = env.bool("DEBUG", default=True)
+ALLOWED_HOSTS = env.list("ALLOWED_HOSTS", default=["*"])
 
 INSTALLED_APPS = [
     "django.contrib.admin",
@@ -54,24 +54,7 @@ TEMPLATES = [
 
 WSGI_APPLICATION = "config.wsgi.application"
 
-if os.environ.get("POSTGRES_DB"):
-    DATABASES = {
-        "default": {
-            "ENGINE": "django.db.backends.postgresql",
-            "NAME": os.environ["POSTGRES_DB"],
-            "USER": os.environ.get("POSTGRES_USER", "postgres"),
-            "PASSWORD": os.environ.get("POSTGRES_PASSWORD", ""),
-            "HOST": os.environ.get("POSTGRES_HOST", "db"),
-            "PORT": os.environ.get("POSTGRES_PORT", "5432"),
-        }
-    }
-else:
-    DATABASES = {
-        "default": {
-            "ENGINE": "django.db.backends.sqlite3",
-            "NAME": BASE_DIR / "db.sqlite3",
-        }
-    }
+DATABASES = {"default": env.db("DATABASE_URL", default=f"sqlite:///{BASE_DIR / 'db.sqlite3'}")}
 
 AUTH_PASSWORD_VALIDATORS = [
     {"NAME": "django.contrib.auth.password_validation.MinimumLengthValidator"},
@@ -106,18 +89,19 @@ LOGGING = {
     "root": {"handlers": ["console"], "level": "INFO"},
 }
 
-BYPASS_MARKET_HOURS = env_bool("BYPASS_MARKET_HOURS", False)
-ENGINE_POLL_INTERVAL = float(os.environ.get("ENGINE_POLL_INTERVAL", 2))
-ENGINE_POLL_TIMEOUT = float(os.environ.get("ENGINE_POLL_TIMEOUT", 30))
-ENGINE_RETRY_DELAYS = [1, 2, 4]
-ENGINE_MIN_ORDER_GAP = 1 / 8
+BYPASS_MARKET_HOURS = env.bool("BYPASS_MARKET_HOURS", default=False)
+ENGINE_POLL_INTERVAL = env.float("ENGINE_POLL_INTERVAL", default=2)
+ENGINE_POLL_TIMEOUT = env.float("ENGINE_POLL_TIMEOUT", default=30)
+ENGINE_RETRY_ATTEMPTS = env.int("ENGINE_RETRY_ATTEMPTS", default=4)
+ENGINE_RETRY_WAIT = env.float("ENGINE_RETRY_WAIT", default=1)
+ENGINE_ORDERS_PER_SECOND = env.int("ENGINE_ORDERS_PER_SECOND", default=8)
 
-WEBHOOK_URL = os.environ.get("WEBHOOK_URL", "")
+WEBHOOK_URL = env("WEBHOOK_URL", default="")
 
-KITE_API_KEY = os.environ.get("KITE_API_KEY", "")
-KITE_API_SECRET = os.environ.get("KITE_API_SECRET", "")
-GROWW_API_KEY = os.environ.get("GROWW_API_KEY", "")
-GROWW_API_SECRET = os.environ.get("GROWW_API_SECRET", "")
-UPSTOX_API_KEY = os.environ.get("UPSTOX_API_KEY", "")
-UPSTOX_API_SECRET = os.environ.get("UPSTOX_API_SECRET", "")
-UPSTOX_REDIRECT_URI = os.environ.get("UPSTOX_REDIRECT_URI", "")
+KITE_API_KEY = env("KITE_API_KEY", default="")
+KITE_API_SECRET = env("KITE_API_SECRET", default="")
+GROWW_API_KEY = env("GROWW_API_KEY", default="")
+GROWW_API_SECRET = env("GROWW_API_SECRET", default="")
+UPSTOX_API_KEY = env("UPSTOX_API_KEY", default="")
+UPSTOX_API_SECRET = env("UPSTOX_API_SECRET", default="")
+UPSTOX_REDIRECT_URI = env("UPSTOX_REDIRECT_URI", default="")
