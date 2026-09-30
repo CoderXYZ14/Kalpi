@@ -19,6 +19,7 @@ class OrderStatus:
     state: str
     filled_quantity: int
     message: str = ""
+    error_code: str = ""
 
 
 class BrokerAdapter(ABC):

@@ -32,7 +32,14 @@ class Execution(models.Model):
 
     class Meta:
         ordering = ["-created_at"]
-        constraints = [models.UniqueConstraint(fields=["user", "idempotency_key"], name="unique_user_idempotency_key")]
+        constraints = [
+            models.UniqueConstraint(fields=["user", "idempotency_key"], name="unique_user_idempotency_key"),
+            models.UniqueConstraint(
+                fields=["broker_account"],
+                condition=models.Q(status="RUNNING"),
+                name="one_running_execution_per_account",
+            ),
+        ]
 
     def __str__(self):
         return f"{self.mode} {self.id} ({self.status})"
