@@ -1,3 +1,4 @@
+from brokers.adapters.angelone import AngelOneAdapter
 from brokers.adapters.fyers import FyersAdapter
 from brokers.adapters.groww import GrowwAdapter
 from brokers.adapters.mock import MockAdapter
@@ -10,6 +11,7 @@ ADAPTERS = {
     "groww": GrowwAdapter,
     "upstox": UpstoxAdapter,
     "fyers": FyersAdapter,
+    "angelone": AngelOneAdapter,
 }
 
 
