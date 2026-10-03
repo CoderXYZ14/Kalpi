@@ -27,6 +27,7 @@ INSTALLED_APPS = [
 
 MIDDLEWARE = [
     "django.middleware.security.SecurityMiddleware",
+    "whitenoise.middleware.WhiteNoiseMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
     "django.middleware.common.CommonMiddleware",
     "django.middleware.csrf.CsrfViewMiddleware",
@@ -105,3 +106,6 @@ GROWW_API_SECRET = env("GROWW_API_SECRET", default="")
 UPSTOX_API_KEY = env("UPSTOX_API_KEY", default="")
 UPSTOX_API_SECRET = env("UPSTOX_API_SECRET", default="")
 UPSTOX_REDIRECT_URI = env("UPSTOX_REDIRECT_URI", default="")
+FYERS_APP_ID = env("FYERS_APP_ID", default="")
+FYERS_SECRET_KEY = env("FYERS_SECRET_KEY", default="")
+FYERS_REDIRECT_URI = env("FYERS_REDIRECT_URI", default="")
