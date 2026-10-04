@@ -8,7 +8,7 @@ from django.utils import timezone
 from rest_framework.permissions import AllowAny
 from rest_framework.views import APIView
 
-from brokers.adapters.registry import ADAPTERS, get_adapter
+from brokers.adapters.registry import ADAPTERS, get_adapter, unsupported_message
 from brokers.errors import BrokerError
 from brokers.models import BrokerAccount
 from common.responses import error_response, success_response
@@ -21,10 +21,6 @@ STATE_MAX_AGE = 600
 
 def _back_to_ui(**params):
     return redirect(f"/?{urlencode(params)}")
-
-
-def _unsupported(broker):
-    return error_response(f"Unsupported broker '{broker}'. Supported: {', '.join(ADAPTERS)}", 400)
 
 
 def _save_login(user, broker, result):
@@ -60,7 +56,7 @@ class BrokerLoginView(APIView):
     def get(self, request, broker):
         broker = broker.lower()
         if broker not in ADAPTERS:
-            return _unsupported(broker)
+            return error_response(unsupported_message(broker), 400)
 
         adapter = get_adapter(broker, user_id=request.user.id)
         state = signing.dumps({"user_id": request.user.id, "broker": broker}, salt=STATE_SALT)
@@ -82,7 +78,7 @@ class BrokerCallbackView(APIView):
     def get(self, request, broker):
         broker = broker.lower()
         if broker not in ADAPTERS:
-            return _back_to_ui(login_error=f"Unsupported broker '{broker}'")
+            return _back_to_ui(login_error=unsupported_message(broker))
 
         try:
             payload = signing.loads(request.query_params.get("state", ""), salt=STATE_SALT, max_age=STATE_MAX_AGE)

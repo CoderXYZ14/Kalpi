@@ -1,5 +1,5 @@
 import type { ButtonHTMLAttributes, ReactNode } from "react";
-import { cn } from "@/lib/cn";
+import { clsx } from "clsx";
 import { Spinner } from "./spinner";
 
 type Variant = "primary" | "secondary" | "ghost";
@@ -39,7 +39,7 @@ export function Button({
     <button
       type={type}
       disabled={disabled || loading}
-      className={cn(
+      className={clsx(
         "inline-flex items-center justify-center gap-2 rounded-lg font-medium whitespace-nowrap transition",
         "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ink",
         "disabled:cursor-not-allowed disabled:opacity-50",

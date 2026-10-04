@@ -1,9 +1,11 @@
+from functools import cached_property
+
 import requests
 from django.conf import settings
 from growwapi import GrowwAPI
 from growwapi.groww import exceptions as groww_errors
 
-from brokers.adapters.base import BrokerAdapter, LoginResult, OrderStatus, network_error, next_ist
+from brokers.adapters.base import BrokerAdapter, LoginResult, OrderStatus, network_error, next_ist, no_reply, sellable_holdings
 from brokers.errors import BrokerError, ErrorCode, classify_message
 
 REQUEST_TIMEOUT = 10
@@ -23,23 +25,12 @@ class QuietGrowwAPI(GrowwAPI):
 
 
 class GrowwAdapter(BrokerAdapter):
-    order_type = GrowwAPI.ORDER_TYPE_MARKET
     required_settings = ("GROWW_API_KEY", "GROWW_API_SECRET")
 
-    def __init__(self, access_token="", user_id=None):
-        super().__init__(access_token, user_id)
-        self._groww = None
-
-    def _check_config(self):
-        if not settings.GROWW_API_KEY or not settings.GROWW_API_SECRET:
-            raise BrokerError(ErrorCode.NOT_ALLOWED, "Groww is not configured on this server (GROWW_API_KEY / GROWW_API_SECRET missing)")
-
-    @property
+    @cached_property
     def groww(self):
-        self._check_config()
-        if self._groww is None:
-            self._groww = QuietGrowwAPI(self.access_token)
-        return self._groww
+        self.check_config()
+        return QuietGrowwAPI(self.access_token)
 
     def _call(self, fn, *args, placing=False, **kwargs):
         try:
@@ -58,14 +49,14 @@ class GrowwAdapter(BrokerAdapter):
         if isinstance(error, groww_errors.GrowwAPIRateLimitException):
             return BrokerError(ErrorCode.RATE_LIMITED, message)
         if isinstance(error, groww_errors.GrowwAPITimeoutException) or str(error.code).startswith("5"):
-            return BrokerError(ErrorCode.TIMEOUT if placing else ErrorCode.BROKER_UNAVAILABLE, message)
+            return no_reply(message, placing)
         return BrokerError(classify_message(message), message)
 
     def get_login_url(self, state):
         return None
 
     def complete_login(self, params):
-        self._check_config()
+        self.check_config()
         try:
             token = self._call(GrowwAPI.get_access_token, api_key=settings.GROWW_API_KEY, secret=settings.GROWW_API_SECRET)
         except BrokerError as error:
@@ -77,11 +68,10 @@ class GrowwAdapter(BrokerAdapter):
 
     def get_holdings(self):
         response = self._call(self.groww.get_holdings_for_user, timeout=REQUEST_TIMEOUT)
-        holdings = {}
-        for item in response.get("holdings", []):
-            sellable = int(item.get("demat_free_quantity") or 0) + int(item.get("t1_quantity") or 0)
-            holdings[item["trading_symbol"]] = holdings.get(item["trading_symbol"], 0) + sellable
-        return {symbol: quantity for symbol, quantity in holdings.items() if quantity > 0}
+        return sellable_holdings(
+            (item["trading_symbol"], int(item.get("demat_free_quantity") or 0) + int(item.get("t1_quantity") or 0))
+            for item in response.get("holdings", [])
+        )
 
     def place_order(self, symbol, side, quantity, tag):
         response = self._call(
@@ -107,13 +97,10 @@ class GrowwAdapter(BrokerAdapter):
             groww_order_id=broker_order_id,
             timeout=REQUEST_TIMEOUT,
         )
-        state = FINAL_STATES.get(response.get("order_status"), OrderStatus.OPEN)
-        message = response.get("remark") or ""
         return OrderStatus(
-            state=state,
+            state=FINAL_STATES.get(response.get("order_status"), OrderStatus.OPEN),
             filled_quantity=int(response.get("filled_quantity") or 0),
-            message=message,
-            error_code=classify_message(message) if state == OrderStatus.REJECTED else "",
+            message=response.get("remark") or "",
         )
 
     def find_order_by_tag(self, tag):

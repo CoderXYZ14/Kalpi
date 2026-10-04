@@ -1,6 +1,6 @@
 import threading
 from datetime import datetime, timezone as dt_timezone
-from functools import cache
+from functools import cache, cached_property
 from unittest.mock import patch
 from urllib.parse import urlencode
 
@@ -9,17 +9,11 @@ import requests
 from cachetools import TTLCache, cached
 from django.conf import settings
 
-from brokers.adapters.base import BrokerAdapter, LoginResult, OrderStatus, network_error, next_ist
+from brokers.adapters.base import OMS_STATES, BrokerAdapter, LoginResult, OrderStatus, network_error, next_ist, no_reply, sellable_holdings
 from brokers.errors import BrokerError, ErrorCode, classify_message
 
 LOGIN_URL = "https://smartapi.angelone.in/publisher-login"
 TAG_LENGTH = 19
-FINAL_STATES = {
-    "complete": OrderStatus.COMPLETE,
-    "rejected": OrderStatus.REJECTED,
-    "cancelled": OrderStatus.CANCELLED,
-    "cancelled after market order": OrderStatus.CANCELLED,
-}
 ERROR_CODES = {
     "AG8001": ErrorCode.AUTH_EXPIRED,
     "AG8002": ErrorCode.AUTH_EXPIRED,
@@ -51,28 +45,21 @@ def token_expiry(access_token):
 
 
 class AngelOneAdapter(BrokerAdapter):
-    order_type = "MARKET"
     required_settings = ("ANGEL_API_KEY",)
 
     def __init__(self, access_token="", user_id=None):
         super().__init__(access_token, user_id)
-        self._client = None
         self._holding_tokens = {}
 
-    def _check_config(self):
-        if not settings.ANGEL_API_KEY:
-            raise BrokerError(ErrorCode.NOT_ALLOWED, "AngelOne is not configured on this server (ANGEL_API_KEY missing)")
-
-    @property
+    @cached_property
     def client(self):
-        self._check_config()
-        if self._client is None:
-            client_class = smart_connect_class()
-            with patch("logzero.logfile"):
-                self._client = client_class(api_key=settings.ANGEL_API_KEY, access_token=self.access_token)
-            if settings.ANGEL_CLIENT_PUBLIC_IP:
-                self._client.clientPublicIp = settings.ANGEL_CLIENT_PUBLIC_IP
-        return self._client
+        self.check_config()
+        client_class = smart_connect_class()
+        with patch("logzero.logfile"):
+            client = client_class(api_key=settings.ANGEL_API_KEY, access_token=self.access_token)
+        if settings.ANGEL_CLIENT_PUBLIC_IP:
+            client.clientPublicIp = settings.ANGEL_CLIENT_PUBLIC_IP
+        return client
 
     def _call(self, fn, *args, placing=False):
         try:
@@ -82,7 +69,7 @@ class AngelOneAdapter(BrokerAdapter):
         except Exception as error:
             raise self._translate_exception(error, placing)
         if not isinstance(response, dict):
-            raise BrokerError(ErrorCode.TIMEOUT if placing else ErrorCode.BROKER_UNAVAILABLE, f"Unexpected AngelOne response: {response}")
+            raise no_reply(f"Unexpected AngelOne response: {response}", placing)
         if response.get("status") is True:
             return response
         raise self._translate(response.get("errorcode") or "", str(response.get("message") or ""), placing)
@@ -95,38 +82,38 @@ class AngelOneAdapter(BrokerAdapter):
         if isinstance(error, smartExceptions.TokenException):
             return BrokerError(ErrorCode.AUTH_EXPIRED, str(error))
         if isinstance(error, (smartExceptions.NetworkException, smartExceptions.DataException)) or error.code >= 500:
-            return BrokerError(ErrorCode.TIMEOUT if placing else ErrorCode.BROKER_UNAVAILABLE, str(error))
+            return no_reply(str(error), placing)
         return BrokerError(classify_message(str(error)), str(error))
 
     def _translate(self, code, message, placing):
         if code in ERROR_CODES:
             return BrokerError(ERROR_CODES[code], message)
         if code in RETRYABLE_CODES:
-            return BrokerError(ErrorCode.TIMEOUT if placing else ErrorCode.BROKER_UNAVAILABLE, message)
+            return no_reply(message, placing)
         return BrokerError(classify_message(message), message or f"AngelOne error {code}")
 
     def get_login_url(self, state):
-        self._check_config()
+        self.check_config()
         return f"{LOGIN_URL}?{urlencode({'api_key': settings.ANGEL_API_KEY, 'state': state})}"
 
     def complete_login(self, params):
-        self._check_config()
+        self.check_config()
         auth_token = params.get("auth_token")
         if not auth_token:
             raise BrokerError(ErrorCode.AUTH_EXPIRED, "AngelOne login was cancelled or returned no auth_token")
         return LoginResult(access_token=auth_token, expires_at=token_expiry(auth_token))
 
     def get_holdings(self):
-        holdings = {}
-        for item in self._call(self.client.holding).get("data") or []:
-            symbol = item["tradingsymbol"].rsplit("-", 1)[0]
-            sellable = int(item.get("quantity") or 0) + int(item.get("t1quantity") or 0)
-            holdings[symbol] = holdings.get(symbol, 0) + sellable
+        items = self._call(self.client.holding).get("data") or []
+        for item in items:
             if item.get("exchange") == "NSE" and item.get("symboltoken"):
-                self._holding_tokens[symbol] = str(item["symboltoken"])
-        return {symbol: quantity for symbol, quantity in holdings.items() if quantity > 0}
+                self._holding_tokens[item["tradingsymbol"].rsplit("-", 1)[0]] = str(item["symboltoken"])
+        return sellable_holdings(
+            (item["tradingsymbol"].rsplit("-", 1)[0], int(item.get("quantity") or 0) + int(item.get("t1quantity") or 0))
+            for item in items
+        )
 
-    @cached(TTLCache(maxsize=10_000, ttl=12 * 60 * 60), key=lambda self, symbol: symbol, lock=threading.Lock())
+    @cached(TTLCache(maxsize=10_000, ttl=12 * 60 * 60), key=lambda _, symbol: symbol, lock=threading.Lock())
     def symbol_token(self, symbol):
         for item in self._call(self.client.searchScrip, "NSE", symbol).get("data") or []:
             if item.get("tradingsymbol") == f"{symbol}-EQ":
@@ -160,13 +147,10 @@ class AngelOneAdapter(BrokerAdapter):
         order = next((item for item in self._order_book() if str(item.get("orderid")) == broker_order_id), None)
         if order is None:
             raise BrokerError(ErrorCode.BROKER_UNAVAILABLE, f"AngelOne order book has no order {broker_order_id} yet")
-        state = FINAL_STATES.get((order.get("status") or "").lower(), OrderStatus.OPEN)
-        message = order.get("text") or ""
         return OrderStatus(
-            state=state,
+            state=OMS_STATES.get((order.get("status") or "").lower(), OrderStatus.OPEN),
             filled_quantity=int(order.get("filledshares") or 0),
-            message=message,
-            error_code=classify_message(message) if state == OrderStatus.REJECTED else "",
+            message=order.get("text") or "",
         )
 
     def find_order_by_tag(self, tag):

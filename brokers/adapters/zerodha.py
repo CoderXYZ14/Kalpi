@@ -1,3 +1,4 @@
+from functools import cached_property
 from urllib.parse import quote, urlencode
 
 import requests
@@ -5,28 +6,18 @@ from django.conf import settings
 from kiteconnect import KiteConnect
 from kiteconnect import exceptions as kite_errors
 
-from brokers.adapters.base import BrokerAdapter, LoginResult, OrderStatus, network_error, next_ist
+from brokers.adapters.base import OMS_STATES, BrokerAdapter, LoginResult, OrderStatus, network_error, next_ist, no_reply, sellable_holdings
 from brokers.errors import BrokerError, ErrorCode, classify_message
-
-FINAL_STATES = {"COMPLETE": OrderStatus.COMPLETE, "REJECTED": OrderStatus.REJECTED, "CANCELLED": OrderStatus.CANCELLED}
 
 
 class ZerodhaAdapter(BrokerAdapter):
-    order_type = KiteConnect.ORDER_TYPE_MARKET
     market_protection = -1
     required_settings = ("KITE_API_KEY", "KITE_API_SECRET")
 
-    def __init__(self, access_token="", user_id=None):
-        super().__init__(access_token, user_id)
-        self._kite = None
-
-    @property
+    @cached_property
     def kite(self):
-        if not settings.KITE_API_KEY or not settings.KITE_API_SECRET:
-            raise BrokerError(ErrorCode.NOT_ALLOWED, "Zerodha is not configured on this server (KITE_API_KEY / KITE_API_SECRET missing)")
-        if self._kite is None:
-            self._kite = KiteConnect(api_key=settings.KITE_API_KEY, access_token=self.access_token or None)
-        return self._kite
+        self.check_config()
+        return KiteConnect(api_key=settings.KITE_API_KEY, access_token=self.access_token or None)
 
     def _call(self, fn, *args, placing=False, **kwargs):
         try:
@@ -49,7 +40,7 @@ class ZerodhaAdapter(BrokerAdapter):
         if error.code == 428:
             return BrokerError(ErrorCode.SELL_NOT_AUTHORIZED, f"{message} Authorise holdings on Kite (CDSL TPIN) or enable DDPI.")
         if isinstance(error, (kite_errors.NetworkException, kite_errors.DataException)) or error.code >= 500:
-            return BrokerError(ErrorCode.TIMEOUT if placing else ErrorCode.BROKER_UNAVAILABLE, message)
+            return no_reply(message, placing)
         return BrokerError(classify_message(message), message)
 
     def get_login_url(self, state):
@@ -63,11 +54,10 @@ class ZerodhaAdapter(BrokerAdapter):
         return LoginResult(access_token=session["access_token"], expires_at=next_ist(6))
 
     def get_holdings(self):
-        holdings = {}
-        for item in self._call(self.kite.holdings):
-            sellable = item.get("quantity", 0) + item.get("t1_quantity", 0) - item.get("used_quantity", 0)
-            holdings[item["tradingsymbol"]] = holdings.get(item["tradingsymbol"], 0) + sellable
-        return {symbol: quantity for symbol, quantity in holdings.items() if quantity > 0}
+        return sellable_holdings(
+            (item["tradingsymbol"], item.get("quantity", 0) + item.get("t1_quantity", 0) - item.get("used_quantity", 0))
+            for item in self._call(self.kite.holdings)
+        )
 
     def place_order(self, symbol, side, quantity, tag):
         order_id = self._call(
@@ -88,13 +78,10 @@ class ZerodhaAdapter(BrokerAdapter):
 
     def get_order_status(self, broker_order_id):
         latest = self._call(self.kite.order_history, broker_order_id)[-1]
-        state = FINAL_STATES.get(latest["status"], OrderStatus.OPEN)
-        message = latest.get("status_message") or ""
         return OrderStatus(
-            state=state,
+            state=OMS_STATES.get(latest["status"].lower(), OrderStatus.OPEN),
             filled_quantity=latest.get("filled_quantity") or 0,
-            message=message,
-            error_code=classify_message(message) if state == OrderStatus.REJECTED else "",
+            message=latest.get("status_message") or "",
         )
 
     def find_order_by_tag(self, tag):

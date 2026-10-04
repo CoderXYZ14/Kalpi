@@ -1,5 +1,6 @@
 import json
 import threading
+from functools import cached_property
 from urllib.parse import urlencode
 
 import upstox_client
@@ -8,18 +9,12 @@ from cachetools import TTLCache, cached
 from django.conf import settings
 from upstox_client.rest import ApiException
 
-from brokers.adapters.base import BrokerAdapter, LoginResult, OrderStatus, next_ist
+from brokers.adapters.base import OMS_STATES, BrokerAdapter, LoginResult, OrderStatus, next_ist, no_reply, sellable_holdings
 from brokers.errors import BrokerError, ErrorCode, classify_message
 
 API_VERSION = "2.0"
 REQUEST_TIMEOUT = 10
 LOGIN_DIALOG_URL = "https://api.upstox.com/v2/login/authorization/dialog"
-FINAL_STATES = {
-    "complete": OrderStatus.COMPLETE,
-    "rejected": OrderStatus.REJECTED,
-    "cancelled": OrderStatus.CANCELLED,
-    "cancelled after market order": OrderStatus.CANCELLED,
-}
 ERROR_CODES = {
     "UDAPI1154": ErrorCode.NOT_ALLOWED,
     "UDAPI1158": ErrorCode.NOT_ALLOWED,
@@ -38,30 +33,19 @@ def _error_details(error):
 
 
 class UpstoxAdapter(BrokerAdapter):
-    order_type = "MARKET"
     market_protection = -1
     required_settings = ("UPSTOX_API_KEY", "UPSTOX_API_SECRET", "UPSTOX_REDIRECT_URI")
 
     def __init__(self, access_token="", user_id=None):
         super().__init__(access_token, user_id)
-        self._client = None
         self._holding_keys = {}
 
-    def _check_config(self):
-        if not (settings.UPSTOX_API_KEY and settings.UPSTOX_API_SECRET and settings.UPSTOX_REDIRECT_URI):
-            raise BrokerError(
-                ErrorCode.NOT_ALLOWED,
-                "Upstox is not configured on this server (UPSTOX_API_KEY / UPSTOX_API_SECRET / UPSTOX_REDIRECT_URI missing)",
-            )
-
-    @property
+    @cached_property
     def client(self):
-        self._check_config()
-        if self._client is None:
-            configuration = upstox_client.Configuration()
-            configuration.access_token = self.access_token
-            self._client = upstox_client.ApiClient(configuration)
-        return self._client
+        self.check_config()
+        configuration = upstox_client.Configuration()
+        configuration.access_token = self.access_token
+        return upstox_client.ApiClient(configuration)
 
     def _call(self, fn, *args, placing=False, **kwargs):
         try:
@@ -83,11 +67,11 @@ class UpstoxAdapter(BrokerAdapter):
         if error.status == 429:
             return BrokerError(ErrorCode.RATE_LIMITED, message)
         if error.status == 0 or error.status >= 500:
-            return BrokerError(ErrorCode.TIMEOUT if placing else ErrorCode.BROKER_UNAVAILABLE, message)
+            return no_reply(message, placing)
         return BrokerError(classify_message(message), message)
 
     def get_login_url(self, state):
-        self._check_config()
+        self.check_config()
         query = urlencode({
             "response_type": "code",
             "client_id": settings.UPSTOX_API_KEY,
@@ -97,7 +81,7 @@ class UpstoxAdapter(BrokerAdapter):
         return f"{LOGIN_DIALOG_URL}?{query}"
 
     def complete_login(self, params):
-        self._check_config()
+        self.check_config()
         code = params.get("code")
         if not code:
             raise BrokerError(ErrorCode.AUTH_EXPIRED, "Upstox login was cancelled or returned no code")
@@ -113,16 +97,16 @@ class UpstoxAdapter(BrokerAdapter):
         return LoginResult(access_token=response.access_token, expires_at=next_ist(3, 30))
 
     def get_holdings(self):
-        response = self._call(upstox_client.PortfolioApi(self.client).get_holdings, API_VERSION)
-        holdings = {}
-        for item in response.data or []:
-            sellable = (item.quantity or 0) + (item.t1_quantity or 0) - (item.cnc_used_quantity or 0)
-            holdings[item.trading_symbol] = holdings.get(item.trading_symbol, 0) + sellable
+        items = self._call(upstox_client.PortfolioApi(self.client).get_holdings, API_VERSION).data or []
+        for item in items:
             if item.instrument_token and item.instrument_token.startswith("NSE_EQ|"):
                 self._holding_keys[item.trading_symbol] = item.instrument_token
-        return {symbol: quantity for symbol, quantity in holdings.items() if quantity > 0}
+        return sellable_holdings(
+            (item.trading_symbol, (item.quantity or 0) + (item.t1_quantity or 0) - (item.cnc_used_quantity or 0))
+            for item in items
+        )
 
-    @cached(TTLCache(maxsize=10_000, ttl=12 * 60 * 60), key=lambda self, symbol: symbol, lock=threading.Lock())
+    @cached(TTLCache(maxsize=10_000, ttl=12 * 60 * 60), key=lambda _, symbol: symbol, lock=threading.Lock())
     def instrument_key(self, symbol):
         response = self._call(upstox_client.InstrumentsApi(self.client).search_instrument, symbol, exchanges="NSE", segments="EQ")
         for item in response.data or []:
@@ -151,13 +135,10 @@ class UpstoxAdapter(BrokerAdapter):
 
     def get_order_status(self, broker_order_id):
         order = self._call(upstox_client.OrderApi(self.client).get_order_details, api_version=API_VERSION, order_id=broker_order_id).data
-        state = FINAL_STATES.get((order.status or "").lower(), OrderStatus.OPEN)
-        message = order.status_message or ""
         return OrderStatus(
-            state=state,
+            state=OMS_STATES.get((order.status or "").lower(), OrderStatus.OPEN),
             filled_quantity=order.filled_quantity or 0,
-            message=message,
-            error_code=classify_message(message) if state == OrderStatus.REJECTED else "",
+            message=order.status_message or "",
         )
 
     def find_order_by_tag(self, tag):

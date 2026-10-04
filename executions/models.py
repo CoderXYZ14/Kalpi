@@ -1,4 +1,5 @@
 import uuid
+from collections import Counter
 
 from django.conf import settings
 from django.db import models
@@ -43,6 +44,9 @@ class Execution(models.Model):
 
     def __str__(self):
         return f"{self.mode} {self.id} ({self.status})"
+
+    def status_counts(self):
+        return dict(Counter(order.status for order in self.orders.all()))
 
 
 class Order(models.Model):

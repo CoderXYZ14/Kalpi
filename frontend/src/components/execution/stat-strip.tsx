@@ -1,16 +1,9 @@
-import { cn } from "@/lib/cn";
+import { clsx } from "clsx";
+import { TONE_TEXT } from "@/components/ui/badge";
 import type { OrderStatus } from "@/lib/types";
 import { STATUS_TONE } from "./status-badge";
 
 const ORDER: OrderStatus[] = ["SUCCESS", "PARTIAL", "PENDING", "FAILED", "SKIPPED", "PLACED", "QUEUED"];
-
-const TEXT: Record<string, string> = {
-  up: "text-up",
-  warn: "text-warn",
-  info: "text-info",
-  down: "text-down",
-  neutral: "text-ink-2",
-};
 
 export function StatStrip({ counts, total }: { counts: Partial<Record<OrderStatus, number>>; total: number }) {
   const present = ORDER.filter((status) => counts[status]);
@@ -23,7 +16,7 @@ export function StatStrip({ counts, total }: { counts: Partial<Record<OrderStatu
       {present.map((status) => (
         <div key={status} className="bg-surface px-4 py-3">
           <p className="text-[11px] font-medium tracking-wide text-ink-3 uppercase">{status.toLowerCase()}</p>
-          <p className={cn("num mt-1 text-2xl font-semibold tracking-tight", TEXT[STATUS_TONE[status]])}>{counts[status]}</p>
+          <p className={clsx("num mt-1 text-2xl font-semibold tracking-tight", TONE_TEXT[STATUS_TONE[status]])}>{counts[status]}</p>
         </div>
       ))}
     </div>

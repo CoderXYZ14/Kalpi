@@ -1,7 +1,6 @@
 import json
 import logging
 from abc import ABC, abstractmethod
-from collections import Counter
 
 import requests
 from django.conf import settings
@@ -40,7 +39,7 @@ def build_summary(execution):
         "error": execution.error_message,
         "created_at": execution.created_at.isoformat(),
         "finished_at": execution.finished_at.isoformat() if execution.finished_at else None,
-        "counts": dict(Counter(order.status for order in orders)),
+        "counts": execution.status_counts(),
         "orders": [
             {
                 "symbol": order.symbol,

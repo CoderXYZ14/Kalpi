@@ -16,8 +16,8 @@ def _first_error(errors, path=""):
             if found:
                 return found
     elif isinstance(errors, list):
-        for i, value in enumerate(errors):
-            found = _first_error(value, f"{path}[{i}]" if isinstance(value, dict) else path)
+        for value in errors:
+            found = _first_error(value, path)
             if found:
                 return found
     elif errors:

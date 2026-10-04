@@ -1,4 +1,5 @@
 from abc import ABC, abstractmethod
+from collections import Counter
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
@@ -7,7 +8,7 @@ import requests
 from django.conf import settings
 from django.utils import timezone
 
-from brokers.errors import BrokerError, ErrorCode
+from brokers.errors import BrokerError, ErrorCode, classify_message
 
 IST = ZoneInfo("Asia/Kolkata")
 
@@ -18,10 +19,21 @@ def next_ist(hour, minute=0):
     return expiry if expiry > now else expiry + timedelta(days=1)
 
 
+def no_reply(message, placing):
+    return BrokerError(ErrorCode.TIMEOUT if placing else ErrorCode.BROKER_UNAVAILABLE, message)
+
+
 def network_error(error, broker, placing=False):
     if placing and not isinstance(error, requests.ConnectTimeout):
-        return BrokerError(ErrorCode.TIMEOUT, f"{broker} did not respond: {error}")
-    return BrokerError(ErrorCode.BROKER_UNAVAILABLE, f"{broker} unreachable: {error}")
+        return no_reply(f"{broker} did not respond: {error}", placing)
+    return no_reply(f"{broker} unreachable: {error}", placing=False)
+
+
+def sellable_holdings(rows):
+    totals = Counter()
+    for symbol, quantity in rows:
+        totals[symbol] += quantity
+    return {symbol: quantity for symbol, quantity in totals.items() if quantity > 0}
 
 
 @dataclass
@@ -42,14 +54,36 @@ class OrderStatus:
     message: str = ""
     error_code: str = ""
 
+    def __post_init__(self):
+        if self.state == self.REJECTED and not self.error_code:
+            self.error_code = classify_message(self.message)
+
+
+OMS_STATES = {
+    "complete": OrderStatus.COMPLETE,
+    "rejected": OrderStatus.REJECTED,
+    "cancelled": OrderStatus.CANCELLED,
+    "cancelled after market order": OrderStatus.CANCELLED,
+}
+
 
 class BrokerAdapter(ABC):
     order_type = "MARKET"
     required_settings = ()
 
     @classmethod
+    def missing_settings(cls):
+        return [name for name in cls.required_settings if not getattr(settings, name, "")]
+
+    @classmethod
     def is_configured(cls):
-        return all(getattr(settings, name, "") for name in cls.required_settings)
+        return not cls.missing_settings()
+
+    def check_config(self):
+        missing = self.missing_settings()
+        if missing:
+            name = type(self).__name__.removesuffix("Adapter")
+            raise BrokerError(ErrorCode.NOT_ALLOWED, f"{name} is not configured on this server ({', '.join(missing)} missing)")
 
     def __init__(self, access_token="", user_id=None):
         self.access_token = access_token

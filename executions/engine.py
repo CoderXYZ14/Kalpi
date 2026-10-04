@@ -3,7 +3,6 @@ import threading
 import time
 from datetime import time as clock_time
 from functools import cache
-from zoneinfo import ZoneInfo
 
 from django.conf import settings
 from django.db import connection
@@ -11,7 +10,7 @@ from django.utils import timezone
 from pyrate_limiter import Duration, Limiter, Rate
 from tenacity import Retrying, retry_if_exception, stop_after_attempt, wait_exponential
 
-from brokers.adapters.base import OrderStatus
+from brokers.adapters.base import IST, OrderStatus
 from brokers.adapters.registry import get_adapter
 from brokers.errors import BrokerError, ErrorCode
 from executions.models import Execution, Order
@@ -19,7 +18,6 @@ from notifications.notifier import notify
 
 logger = logging.getLogger("engine")
 
-IST = ZoneInfo("Asia/Kolkata")
 MARKET_OPEN = clock_time(9, 15)
 MARKET_CLOSE = clock_time(15, 30)
 TRANSIENT_ERRORS = {ErrorCode.RATE_LIMITED, ErrorCode.BROKER_UNAVAILABLE}
@@ -52,6 +50,10 @@ def is_market_open(now=None):
     return now.weekday() < 5 and MARKET_OPEN <= now.time() <= MARKET_CLOSE
 
 
+def _short_id(execution):
+    return str(execution.id)[:8]
+
+
 def is_transient(error):
     return isinstance(error, BrokerError) and error.code in TRANSIENT_ERRORS
 
@@ -68,7 +70,7 @@ class ExecutionRunner:
         self.adapter = get_adapter(self.account.broker, self.account.access_token, self.account.user_id)
 
     def log(self, message, *args, level=logging.INFO):
-        logger.log(level, f"[exec {str(self.execution.id)[:8]}] {message}", *args)
+        logger.log(level, f"[exec {_short_id(self.execution)}] {message}", *args)
 
     def run(self):
         self.log("started: mode=%s broker=%s", self.execution.mode, self.account.broker)
@@ -234,26 +236,28 @@ def _close_open_orders(execution, reason):
     )
 
 
+def _finish(execution, status, error_message="", reason=""):
+    if reason:
+        _close_open_orders(execution, reason)
+    execution.status = status
+    execution.error_message = error_message
+    execution.finished_at = timezone.now()
+    execution.save(update_fields=["status", "error_message", "finished_at"])
+    logger.info("[exec %s] finished: %s %s", _short_id(execution), status, error_message)
+    notify(execution)
+
+
 def run_execution(execution_id):
     execution = Execution.objects.select_related("broker_account").get(id=execution_id)
     try:
         ExecutionRunner(execution).run()
-        execution.status = Execution.Status.COMPLETED
     except StopExecution as stop:
-        logger.warning("[exec %s] stopped: %s", str(execution.id)[:8], stop)
-        _close_open_orders(execution, f"execution stopped, {stop.code}")
-        execution.status = Execution.Status.STOPPED
-        execution.error_message = f"{stop.code}: {stop.message}"
+        _finish(execution, Execution.Status.STOPPED, f"{stop.code}: {stop.message}", f"execution stopped, {stop.code}")
     except Exception as error:
-        logger.exception("[exec %s] crashed", str(execution.id)[:8])
-        _close_open_orders(execution, "internal error")
-        execution.status = Execution.Status.STOPPED
-        execution.error_message = f"Internal error: {error}"
-
-    execution.finished_at = timezone.now()
-    execution.save(update_fields=["status", "error_message", "finished_at"])
-    logger.info("[exec %s] finished: %s", str(execution.id)[:8], execution.status)
-    notify(execution)
+        logger.exception("[exec %s] crashed", _short_id(execution))
+        _finish(execution, Execution.Status.STOPPED, f"Internal error: {error}", "internal error")
+    else:
+        _finish(execution, Execution.Status.COMPLETED)
 
 
 def _run_in_thread(execution_id):
@@ -270,11 +274,10 @@ def start_execution(execution_id):
 def recover_interrupted_executions():
     stuck = list(Execution.objects.select_related("broker_account").filter(status=Execution.Status.RUNNING))
     for execution in stuck:
-        _close_open_orders(execution, "server restarted")
-        execution.status = Execution.Status.STOPPED
-        execution.error_message = "Interrupted by server restart. Check broker order book for PLACED orders."
-        execution.finished_at = timezone.now()
-        execution.save(update_fields=["status", "error_message", "finished_at"])
-        logger.warning("[exec %s] marked STOPPED after restart", str(execution.id)[:8])
-        notify(execution)
+        _finish(
+            execution,
+            Execution.Status.STOPPED,
+            "Interrupted by server restart. Check broker order book for PLACED orders.",
+            "server restarted",
+        )
     return len(stuck)

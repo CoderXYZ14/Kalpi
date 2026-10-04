@@ -1,6 +1,7 @@
 import { CircleAlert } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { brokerName } from "@/lib/brokers";
+import { MODE_LABEL } from "@/lib/portfolio";
 import type { Execution } from "@/lib/types";
 import { OrdersTable } from "./orders-table";
 import { StatStrip } from "./stat-strip";
@@ -13,7 +14,6 @@ function duration(execution: Execution) {
 }
 
 export function ResultsPanel({ execution }: { execution: Execution }) {
-  const mode = execution.mode === "REBALANCE" ? "Rebalance" : "First-time buy";
   return (
     <div className="animate-rise">
       <Card
@@ -24,7 +24,7 @@ export function ResultsPanel({ execution }: { execution: Execution }) {
         }
         description={
           <span className="num">
-            {mode} on {brokerName(execution.broker)} · <span className="font-mono">{execution.id.slice(0, 8)}</span> · {duration(execution)}
+            {MODE_LABEL[execution.mode]} on {brokerName(execution.broker)} · <span className="font-mono">{execution.id.slice(0, 8)}</span> · {duration(execution)}
           </span>
         }
         actions={execution.status === "RUNNING" && <span className="text-[12px] text-ink-3">Live · refreshing every 2s</span>}

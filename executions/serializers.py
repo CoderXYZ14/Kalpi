@@ -3,7 +3,7 @@ from collections import Counter
 
 from rest_framework import serializers
 
-from brokers.adapters.registry import ADAPTERS
+from brokers.adapters.registry import ADAPTERS, unsupported_message
 from executions.engine import normalize
 from executions.models import Execution, Order
 
@@ -11,15 +11,17 @@ SYMBOL_PATTERN = re.compile(r"^[A-Z0-9&-]{1,30}$")
 MAX_ORDERS = 100
 
 
-def clean_symbol(value):
-    symbol = value.strip().upper()
-    if not SYMBOL_PATTERN.match(symbol):
-        raise serializers.ValidationError(f"'{value}' is not a valid NSE symbol")
-    return symbol
-
-
-class OrderItemSerializer(serializers.Serializer):
+class SymbolSerializer(serializers.Serializer):
     symbol = serializers.CharField()
+
+    def validate_symbol(self, value):
+        symbol = value.strip().upper()
+        if not SYMBOL_PATTERN.match(symbol):
+            raise serializers.ValidationError(f"'{value}' is not a valid NSE symbol")
+        return symbol
+
+
+class OrderItemSerializer(SymbolSerializer):
     quantity = serializers.IntegerField(
         min_value=1,
         error_messages={
@@ -28,16 +30,9 @@ class OrderItemSerializer(serializers.Serializer):
         },
     )
 
-    def validate_symbol(self, value):
-        return clean_symbol(value)
 
-
-class RebalanceItemSerializer(serializers.Serializer):
-    symbol = serializers.CharField()
+class RebalanceItemSerializer(SymbolSerializer):
     quantity_change = serializers.IntegerField(error_messages={"invalid": "INVALID_QUANTITY: must be a whole number"})
-
-    def validate_symbol(self, value):
-        return clean_symbol(value)
 
 
 class ExecutionCreateSerializer(serializers.Serializer):
@@ -51,7 +46,7 @@ class ExecutionCreateSerializer(serializers.Serializer):
     def validate_broker(self, value):
         broker = value.strip().lower()
         if broker not in ADAPTERS:
-            raise serializers.ValidationError(f"Unsupported broker '{value}'. Supported: {', '.join(ADAPTERS)}")
+            raise serializers.ValidationError(unsupported_message(value))
         return broker
 
     def validate(self, data):
@@ -88,7 +83,7 @@ class OrderSerializer(serializers.ModelSerializer):
 
 class ExecutionSerializer(serializers.ModelSerializer):
     broker = serializers.CharField(source="broker_account.broker")
-    counts = serializers.SerializerMethodField()
+    counts = serializers.DictField(source="status_counts", read_only=True)
     orders = OrderSerializer(many=True)
 
     class Meta:
@@ -97,6 +92,3 @@ class ExecutionSerializer(serializers.ModelSerializer):
             "id", "mode", "broker", "status", "idempotency_key", "error_message",
             "created_at", "finished_at", "counts", "orders",
         ]
-
-    def get_counts(self, execution):
-        return dict(Counter(order.status for order in execution.orders.all()))

@@ -1,5 +1,5 @@
 import { ArrowDownRight, ArrowUpRight } from "lucide-react";
-import { cn } from "@/lib/cn";
+import { clsx } from "clsx";
 import type { Order } from "@/lib/types";
 import { FillBar } from "./fill-bar";
 import { StatusBadge } from "./status-badge";
@@ -15,7 +15,7 @@ export function OrdersTable({ orders }: { orders: Order[] }) {
             <th className={HEAD}>#</th>
             <th className={HEAD}>Symbol</th>
             <th className={HEAD}>Side</th>
-            <th className={cn(HEAD, "text-right")}>Qty</th>
+            <th className={clsx(HEAD, "text-right")}>Qty</th>
             <th className={HEAD}>Filled</th>
             <th className={HEAD}>Status</th>
             <th className={HEAD}>Reason</th>
@@ -28,7 +28,7 @@ export function OrdersTable({ orders }: { orders: Order[] }) {
               <td className="px-4 py-3 font-mono text-[13px] font-medium">{order.symbol}</td>
               <td className="px-4 py-3">
                 <span
-                  className={cn(
+                  className={clsx(
                     "inline-flex items-center gap-1 text-[12px] font-semibold",
                     order.side === "BUY" ? "text-up" : "text-down",
                   )}

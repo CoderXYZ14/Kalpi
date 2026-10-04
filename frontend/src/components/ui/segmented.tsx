@@ -1,4 +1,4 @@
-import { cn } from "@/lib/cn";
+import { clsx } from "clsx";
 
 interface SegmentedProps<T extends string> {
   value: T;
@@ -16,7 +16,7 @@ export function Segmented<T extends string>({ value, options, onChange }: Segmen
           role="radio"
           aria-checked={value === option.value}
           onClick={() => onChange(option.value)}
-          className={cn(
+          className={clsx(
             "flex-1 rounded-md px-3 text-[13px] font-medium transition",
             value === option.value ? "bg-surface text-ink shadow-sm" : "text-ink-3 hover:text-ink",
           )}

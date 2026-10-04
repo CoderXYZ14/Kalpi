@@ -2,6 +2,7 @@ import { Upload } from "lucide-react";
 import { type ChangeEvent, useRef } from "react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
+import { errorMessage } from "@/lib/api";
 import { parseCsv } from "@/lib/csv";
 import type { Sections } from "@/lib/types";
 
@@ -16,7 +17,7 @@ export function CsvUploadButton({ onLoad }: { onLoad: (sections: Sections) => vo
       onLoad(parseCsv(await file.text()));
       toast.success(`Loaded ${file.name}`);
     } catch (error) {
-      toast.error((error as Error).message);
+      toast.error(errorMessage(error));
     }
   };
 

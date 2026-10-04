@@ -1,4 +1,4 @@
-import { cn } from "@/lib/cn";
+import { clsx } from "clsx";
 
 export function FillBar({ filled, quantity }: { filled: number; quantity: number }) {
   const percent = quantity ? Math.min(100, Math.round((filled / quantity) * 100)) : 0;
@@ -6,7 +6,7 @@ export function FillBar({ filled, quantity }: { filled: number; quantity: number
     <div className="flex items-center gap-2">
       <div className="h-1.5 w-16 overflow-hidden rounded-full bg-subtle">
         <div
-          className={cn("h-full rounded-full transition-all", percent === 100 ? "bg-up" : percent > 0 ? "bg-warn" : "bg-transparent")}
+          className={clsx("h-full rounded-full transition-all", percent === 100 ? "bg-up" : percent > 0 ? "bg-warn" : "bg-transparent")}
           style={{ width: `${percent}%` }}
         />
       </div>

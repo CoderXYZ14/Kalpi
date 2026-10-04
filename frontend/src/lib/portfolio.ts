@@ -1,4 +1,4 @@
-import type { Sections } from "./types";
+import type { Mode, Sections } from "./types";
 
 export const DEMO_PORTFOLIO: Sections = {
   sell: [
@@ -32,45 +32,33 @@ export function toText(sections: Sections): string {
   return JSON.stringify(sections, null, 2);
 }
 
-export function parseSections(text: string): Sections {
+export const MODE_LABEL: Record<Mode, string> = {
+  FIRST_TIME: "First-time buy",
+  REBALANCE: "Rebalance",
+};
+
+function count(n: number, word: string) {
+  return n ? `${n} ${word}${n > 1 ? "s" : ""}` : "";
+}
+
+export function checkPortfolio(text: string): { sections?: Sections; error?: string; summary: string } {
   let value: unknown;
   try {
     value = JSON.parse(text || "{}");
   } catch {
-    throw new Error("Portfolio is not valid JSON");
+    return { error: "Portfolio is not valid JSON", summary: "Portfolio is not valid JSON" };
   }
   if (typeof value !== "object" || value === null || Array.isArray(value)) {
-    throw new Error(
-      "Portfolio must be a JSON object with buy, sell or rebalance lists",
-    );
+    const error = "Portfolio must be a JSON object with buy, sell or rebalance lists";
+    return { error, summary: error };
   }
-  return value as Sections;
-}
-
-export function portfolioError(text: string): string | null {
-  try {
-    parseSections(text);
-    return null;
-  } catch (error) {
-    return (error as Error).message;
-  }
-}
-
-export function summarize(text: string): string {
-  try {
-    const sections = parseSections(text);
-    const sells = sections.sell?.length ?? 0;
-    const buys = sections.buy?.length ?? 0;
-    const changes = sections.rebalance?.length ?? 0;
-    const parts = [
-      sells && `${sells} sell${sells > 1 ? "s" : ""}`,
-      buys && `${buys} buy${buys > 1 ? "s" : ""}`,
-      changes && `${changes} adjustment${changes > 1 ? "s" : ""}`,
-    ].filter(Boolean);
-    return parts.length ? parts.join(" · ") : "Empty portfolio";
-  } catch (error) {
-    return (error as Error).message;
-  }
+  const sections = value as Sections;
+  const parts = [
+    count(sections.sell?.length ?? 0, "sell"),
+    count(sections.buy?.length ?? 0, "buy"),
+    count(sections.rebalance?.length ?? 0, "adjustment"),
+  ].filter(Boolean);
+  return { sections, summary: parts.length ? parts.join(" · ") : "Empty portfolio" };
 }
 
 export function newIdempotencyKey(): string {

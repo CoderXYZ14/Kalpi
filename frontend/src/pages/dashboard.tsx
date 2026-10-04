@@ -1,5 +1,4 @@
 import { useState } from "react";
-import { toast } from "sonner";
 import { BrokerPanel } from "@/components/brokers/broker-panel";
 import { ExecuteBar } from "@/components/execution/execute-bar";
 import { ResultsPanel } from "@/components/execution/results-panel";
@@ -7,7 +6,7 @@ import { TopBar } from "@/components/layout/top-bar";
 import { PortfolioPanel } from "@/components/portfolio/portfolio-panel";
 import { useBrokers } from "@/hooks/useBrokers";
 import { useExecution } from "@/hooks/useExecution";
-import { DEMO_PORTFOLIO, newIdempotencyKey, parseSections, portfolioError, summarize, toText } from "@/lib/portfolio";
+import { checkPortfolio, DEMO_PORTFOLIO, newIdempotencyKey, toText } from "@/lib/portfolio";
 import type { Mode } from "@/lib/types";
 
 export function Dashboard({ onLogout }: { onLogout: () => void }) {
@@ -16,14 +15,10 @@ export function Dashboard({ onLogout }: { onLogout: () => void }) {
   const [broker, setBroker] = useState("mock");
   const [mode, setMode] = useState<Mode>("REBALANCE");
   const [text, setText] = useState(toText(DEMO_PORTFOLIO));
+  const portfolio = checkPortfolio(text);
 
   const execute = () => {
-    try {
-      const sections = parseSections(text);
-      submit({ ...sections, mode, broker, idempotency_key: newIdempotencyKey() });
-    } catch (error) {
-      toast.error((error as Error).message);
-    }
+    if (portfolio.sections) submit({ ...portfolio.sections, mode, broker, idempotency_key: newIdempotencyKey() });
   };
 
   return (
@@ -42,6 +37,7 @@ export function Dashboard({ onLogout }: { onLogout: () => void }) {
             broker={broker}
             mode={mode}
             text={text}
+            summary={portfolio.summary}
             onBrokerChange={setBroker}
             onModeChange={setMode}
             onTextChange={setText}
@@ -51,8 +47,8 @@ export function Dashboard({ onLogout }: { onLogout: () => void }) {
         <ExecuteBar
           broker={brokers.find((item) => item.broker === broker)}
           mode={mode}
-          summary={summarize(text)}
-          problem={portfolioError(text)}
+          summary={portfolio.summary}
+          problem={portfolio.error}
           running={running}
           onExecute={execute}
         />
