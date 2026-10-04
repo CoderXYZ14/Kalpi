@@ -15,9 +15,16 @@ services:
 
   web:
     build: .
-    env_file: .env
+    env_file:
+      - path: .env
+        required: false
     environment:
       DATABASE_URL: postgres://kalpi:kalpi@db:5432/kalpi
+      DEBUG: ${DEBUG:-false}
+      BYPASS_MARKET_HOURS: ${BYPASS_MARKET_HOURS:-true}
+      DJANGO_SUPERUSER_USERNAME: ${DJANGO_SUPERUSER_USERNAME:-demo}
+      DJANGO_SUPERUSER_PASSWORD: ${DJANGO_SUPERUSER_PASSWORD:-demo1234}
+      DJANGO_SUPERUSER_EMAIL: ${DJANGO_SUPERUSER_EMAIL:-demo@example.com}
     ports:
       - "8000:8000"
     depends_on:
