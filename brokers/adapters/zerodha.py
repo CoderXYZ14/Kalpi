@@ -14,6 +14,7 @@ FINAL_STATES = {"COMPLETE": OrderStatus.COMPLETE, "REJECTED": OrderStatus.REJECT
 class ZerodhaAdapter(BrokerAdapter):
     order_type = KiteConnect.ORDER_TYPE_MARKET
     market_protection = -1
+    required_settings = ("KITE_API_KEY", "KITE_API_SECRET")
 
     def __init__(self, access_token="", user_id=None):
         super().__init__(access_token, user_id)

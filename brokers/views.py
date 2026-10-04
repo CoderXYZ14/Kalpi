@@ -1,7 +1,9 @@
 import logging
+from urllib.parse import urlencode
 
 from django.contrib.auth import get_user_model
 from django.core import signing
+from django.shortcuts import redirect
 from django.utils import timezone
 from rest_framework.permissions import AllowAny
 from rest_framework.views import APIView
@@ -15,6 +17,10 @@ logger = logging.getLogger("brokers")
 
 STATE_SALT = "broker-login"
 STATE_MAX_AGE = 600
+
+
+def _back_to_ui(**params):
+    return redirect(f"/?{urlencode(params)}")
 
 
 def _unsupported(broker):
@@ -43,6 +49,7 @@ class BrokerListView(APIView):
             account = accounts.get(broker)
             data.append({
                 "broker": broker,
+                "configured": ADAPTERS[broker].is_configured(),
                 "connected": bool(account and account.is_connected()),
                 "token_expires_at": account.token_expires_at if account else None,
             })
@@ -75,23 +82,24 @@ class BrokerCallbackView(APIView):
     def get(self, request, broker):
         broker = broker.lower()
         if broker not in ADAPTERS:
-            return _unsupported(broker)
+            return _back_to_ui(login_error=f"Unsupported broker '{broker}'")
 
         try:
             payload = signing.loads(request.query_params.get("state", ""), salt=STATE_SALT, max_age=STATE_MAX_AGE)
         except signing.BadSignature:
-            return error_response("Login link is invalid or expired. Start login again.", 400)
+            return _back_to_ui(login_error="Login link is invalid or expired. Start login again.")
         if payload["broker"] != broker:
-            return error_response("Login state does not match this broker", 400)
+            return _back_to_ui(login_error="Login state does not match this broker")
 
         user = get_user_model().objects.filter(id=payload["user_id"], is_active=True).first()
         if user is None:
-            return error_response("User for this login no longer exists or is inactive", 400)
+            return _back_to_ui(login_error="User for this login no longer exists or is inactive")
 
         adapter = get_adapter(broker, user_id=user.id)
         try:
             result = adapter.complete_login(request.query_params)
         except BrokerError as error:
             logger.warning("[callback] user=%s broker=%s failed: %s", user.id, broker, error)
-            return error_response(error.message, 400)
-        return success_response(_save_login(user, broker, result))
+            return _back_to_ui(login_error=error.message)
+        _save_login(user, broker, result)
+        return _back_to_ui(connected=broker)

@@ -26,6 +26,7 @@ def from_fyers_symbol(fyers_symbol):
 
 class FyersAdapter(BrokerAdapter):
     order_type = MARKET_ORDER
+    required_settings = ("FYERS_APP_ID", "FYERS_SECRET_KEY", "FYERS_REDIRECT_URI")
 
     def __init__(self, access_token="", user_id=None):
         super().__init__(access_token, user_id)

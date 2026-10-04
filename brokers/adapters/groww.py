@@ -24,6 +24,7 @@ class QuietGrowwAPI(GrowwAPI):
 
 class GrowwAdapter(BrokerAdapter):
     order_type = GrowwAPI.ORDER_TYPE_MARKET
+    required_settings = ("GROWW_API_KEY", "GROWW_API_SECRET")
 
     def __init__(self, access_token="", user_id=None):
         super().__init__(access_token, user_id)

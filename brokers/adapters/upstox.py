@@ -40,6 +40,7 @@ def _error_details(error):
 class UpstoxAdapter(BrokerAdapter):
     order_type = "MARKET"
     market_protection = -1
+    required_settings = ("UPSTOX_API_KEY", "UPSTOX_API_SECRET", "UPSTOX_REDIRECT_URI")
 
     def __init__(self, access_token="", user_id=None):
         super().__init__(access_token, user_id)

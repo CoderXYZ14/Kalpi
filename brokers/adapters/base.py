@@ -4,6 +4,7 @@ from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
 import requests
+from django.conf import settings
 from django.utils import timezone
 
 from brokers.errors import BrokerError, ErrorCode
@@ -44,6 +45,11 @@ class OrderStatus:
 
 class BrokerAdapter(ABC):
     order_type = "MARKET"
+    required_settings = ()
+
+    @classmethod
+    def is_configured(cls):
+        return all(getattr(settings, name, "") for name in cls.required_settings)
 
     def __init__(self, access_token="", user_id=None):
         self.access_token = access_token

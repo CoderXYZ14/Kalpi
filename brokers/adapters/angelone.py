@@ -52,6 +52,7 @@ def token_expiry(access_token):
 
 class AngelOneAdapter(BrokerAdapter):
     order_type = "MARKET"
+    required_settings = ("ANGEL_API_KEY",)
 
     def __init__(self, access_token="", user_id=None):
         super().__init__(access_token, user_id)

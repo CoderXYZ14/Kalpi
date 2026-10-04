@@ -7,3 +7,5 @@ staticfiles/
 docs/
 .DS_Store
 logs/
+frontend/node_modules/
+frontend_dist/
